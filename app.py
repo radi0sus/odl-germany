@@ -579,4 +579,4 @@ with st.container(border=True):
         )
     st.plotly_chart(fig_week, width="stretch")
 
-
+st.caption("Data from [ODL-Info](https://odlinfo.bfs.de)")
