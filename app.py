@@ -466,20 +466,20 @@ with st.container(border=True):
     m1, m2, m3, m4 = st.columns(4)
     
     m1.metric(
-        "Latest 1h value",
-        f":blue[{latest_1h:.3f} µSv/h]" if latest_1h is not None else "n/a",
+        "Latest 1h value (µSv/h)",
+        f":blue[{latest_1h:.3f}]" if latest_1h is not None else "n/a",
         delta=f"{delta_1h:+.3f}" if delta_1h is not None else None,
     )
     
     m2.metric(
-        "Latest 24h value",
-        f":blue[{latest_24h:.3f} µSv/h]" if latest_24h is not None else "n/a",
+        "Latest 24h value (µSv/h)",
+        f":blue[{latest_24h:.3f}]" if latest_24h is not None else "n/a",
         delta=f"{delta_24h:+.3f}" if delta_24h is not None else None,
     )
     
     m3.metric(
-        "7-day mean",
-        f":blue[{mean_7d:.3f} µSv/h]" if mean_7d is not None else "n/a",
+        "7-day mean (µSv/h)",
+        f":blue[{mean_7d:.3f}]" if mean_7d is not None else "n/a",
     )
     
 #    m4.metric(
@@ -488,8 +488,8 @@ with st.container(border=True):
 #    )
     
     m4.metric(
-        "365-day mean",
-        f":blue[{mean_365d:.3f} µSv/h]" if mean_365d is not None else "n/a",
+        "365-day mean (µSv/h)",
+        f":blue[{mean_365d:.3f}]" if mean_365d is not None else "n/a",
     )
     
 
