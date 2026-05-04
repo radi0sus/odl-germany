@@ -165,20 +165,20 @@ def load_layer(layer_name: str, kenn: str) -> pd.DataFrame:
         coords = geom.get("coordinates", [None, None])
 
         row = {
-            "feature_id": feature.get("id"),
-            "feature_type": feature.get("type"),
-            "geometry_name": feature.get("geometry_name"),
-            "geometry_type": geom.get("type"),
-            "lon": coords[0] if len(coords) > 0 else None,
-            "lat": coords[1] if len(coords) > 1 else None,
-            "id": props.get("id"),
+            # "feature_id": feature.get("id"),
+            # "feature_type": feature.get("type"),
+            # "geometry_name": feature.get("geometry_name"),
+            # "geometry_type": geom.get("type"),
+            # "lon": coords[0] if len(coords) > 0 else None,
+            # "lat": coords[1] if len(coords) > 1 else None,
+            # "id": props.get("id"),
             "kenn": props.get("kenn"),
             "plz": props.get("plz"),
             "name": props.get("name"),
-            "site_status": props.get("site_status"),
-            "site_status_text": props.get("site_status_text"),
-            "kid": props.get("kid"),
-            "height_above_sea": props.get("height_above_sea"),
+            # "site_status": props.get("site_status"),
+            # "site_status_text": props.get("site_status_text"),
+            # "kid": props.get("kid"),
+            # "height_above_sea": props.get("height_above_sea"),
             "start_measure": props.get("start_measure"),
             "end_measure": props.get("end_measure"),
             "start_dt": datetime.fromisoformat(props.get("start_measure").replace("Z", "+00:00"))
@@ -188,12 +188,12 @@ def load_layer(layer_name: str, kenn: str) -> pd.DataFrame:
             if props.get("end_measure")
             else None,
             "value": float(props["value"]) if props.get("value") is not None else None,
-            "value_cosmic": float(props["value_cosmic"]) if props.get("value_cosmic") is not None else None,
-            "value_terrestrial": float(props["value_terrestrial"]) if props.get("value_terrestrial") is not None else None,
-            "unit": props.get("unit"),
-            "validated": props.get("validated"),
-            "nuclide": props.get("nuclide"),
-            "duration": props.get("duration"),
+            # "value_cosmic": float(props["value_cosmic"]) if props.get("value_cosmic") is not None else None,
+            # "value_terrestrial": float(props["value_terrestrial"]) if props.get("value_terrestrial") is not None else None,
+            # "unit": props.get("unit"),
+            # "validated": props.get("validated"),
+            # "nuclide": props.get("nuclide"),
+            # "duration": props.get("duration"),
         }
 
         rows.append(row)
