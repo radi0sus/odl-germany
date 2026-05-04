@@ -60,7 +60,9 @@ def load_stations() -> pd.DataFrame:
                 "site_status": props.get("site_status"),
                 "site_status_text": props.get("site_status_text"),
                 "unit": props.get("unit"),
-                "value": float(props["value"]) if props.get("value") is not None else None,
+                "value_total": float(props["value"]) if props.get("value") is not None else None,
+                "value_cosmic": float(props["value_cosmic"]) if props.get("value_cosmic") is not None else None,
+                "value_terrestrial": float(props["value_terrestrial"]) if props.get("value_terrestrial") is not None else None,
                 "lon": coords[0] if len(coords) > 0 else None,
                 "lat": coords[1] if len(coords) > 1 else None,
             }
@@ -235,6 +237,10 @@ selected_row = df_stations[df_stations["label"] == selected_label].iloc[0]
 selected_kenn = selected_row["kenn"]
 selected_place_name = selected_row["name"]
 
+latest_total = selected_row["value_total"]
+latest_cosmic = selected_row["value_cosmic"]
+latest_terrestrial = selected_row["value_terrestrial"]
+
 
 try:
     df_1h = load_layer(ONE_HOUR_LAYER, selected_kenn)
@@ -250,6 +256,13 @@ station_name = (
     else selected_place_name
 )
 
+st.markdown(
+    f":red-badge[:material/functions: {latest_total:.3f} µSv/h] :green-badge[:material/globe: {latest_terrestrial:.3f} µSv/h] :blue-badge[:material/Stars_2: {latest_cosmic:.3f} µSv/h]",
+    help="latest total, terrestrial and cosmic"
+)
+
+#st.badge(f"Latest {latest_total}", icon=":material/check:", color="green")
+#st.caption(f"{latest_total}")
 
 # ============================================================
 # Data agg
@@ -414,7 +427,7 @@ def make_range_plot(
     )
 
     return fig
-
+ 
 # ============================================================
 # KPIs
 # ============================================================
@@ -470,6 +483,7 @@ with st.container(border=True):
         f":blue[{latest_1h:.3f}]" if latest_1h is not None else "n/a",
         delta=f"{delta_1h:+.3f}" if delta_1h is not None else None,
     )
+       
     
     m2.metric(
         "Latest 24h value (µSv/h)",
