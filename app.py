@@ -241,6 +241,10 @@ latest_total = selected_row["value_total"]
 latest_cosmic = selected_row["value_cosmic"]
 latest_terrestrial = selected_row["value_terrestrial"]
 
+latest_total_str = f"{latest_total:.3f} µSv/h" if latest_total is not None else "n/a"
+latest_cosmic_str = f"{latest_cosmic:.3f} µSv/h" if latest_cosmic is not None else "n/a"
+latest_terrestrial_str = f"{latest_terrestrial:.3f} µSv/h" if latest_terrestrial is not None else "n/a"
+
 
 try:
     df_1h = load_layer(ONE_HOUR_LAYER, selected_kenn)
@@ -257,10 +261,11 @@ station_name = (
 )
 
 st.markdown(
-    f":red-badge[:material/functions: {latest_total:.3f} µSv/h] :green-badge[:material/globe: {latest_terrestrial:.3f} µSv/h] :blue-badge[:material/Stars_2: {latest_cosmic:.3f} µSv/h]",
-    help="latest total, terrestrial and cosmic"
+    f":red-badge[:material/functions: {latest_total_str}] "
+    f":green-badge[:material/globe: {latest_terrestrial_str}] "
+    f":blue-badge[:material/stars_2: {latest_cosmic_str}]",
+    help="Latest total, terrestrial, and cosmic ambient dose rate components",
 )
-
 #st.badge(f"Latest {latest_total}", icon=":material/check:", color="green")
 #st.caption(f"{latest_total}")
 
