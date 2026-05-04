@@ -517,14 +517,30 @@ with c1:
         )
         
         if mean_7d is not None:
-            fig_day.add_hline(
-                y=mean_7d,
+            fig_day.add_shape(
+                #legendrank=0,
+                showlegend=True,
+                type="line",
+                xref="paper",
                 line_dash="dot",
-                line_color="rgba(120, 120, 120, 0.45)",
+                line_color="rgba(120, 120, 120, 0.65)",
                 line_width=1.5,
-                annotation_text=f"{mean_7d:.3f}",
-                annotation_position="bottom right",
+                name=f"7-day mean: {mean_7d:.3f}  µSv/h",
+                #range_name=f"{mean_365d:.3f}",
+                x0=0,
+                x1=1,
+                y0=mean_7d,
+                y1=mean_7d,
             )
+            
+        fig_day.update_layout(legend=dict(
+            orientation="h",
+            #entrywidth=70,
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ))
         
         st.plotly_chart(fig_day, width="stretch")
     
@@ -568,14 +584,31 @@ with st.container(border=True):
     )
     
     if mean_365d is not None:
-        fig_week.add_hline(
-            y=mean_365d,
+        
+        fig_week.add_shape(
+            #legendrank=0,
+            showlegend=True,
+            type="line",
+            xref="paper",
             line_dash="dot",
-            line_color="rgba(120, 120, 120, 0.45)",
+            line_color="rgba(120, 120, 120, 0.65)",
             line_width=1.5,
-            annotation_text=f"{mean_365d:.3f}",
-            annotation_position="bottom right",
+            name=f"365-day mean: {mean_365d:.3f}  µSv/h",
+            #range_name=f"{mean_365d:.3f}",
+            x0=0,
+            x1=1,
+            y0=mean_365d,
+            y1=mean_365d,
         )
+        
+    fig_week.update_layout(legend=dict(
+        orientation="h",
+        #entrywidth=70,
+        yanchor="bottom",
+        y=1.02,
+        xanchor="right",
+        x=1
+    ))
     st.plotly_chart(fig_week, width="stretch")
 
 st.caption("Data from [ODL-Info](https://odlinfo.bfs.de)")
