@@ -7,6 +7,9 @@ import plotly.graph_objects as go
 import pandas as pd
 import streamlit as st
 
+import folium
+from streamlit_folium import st_folium
+
 
 # ============================================================
 # Config
@@ -260,12 +263,6 @@ station_name = (
     else selected_place_name
 )
 
-st.markdown(
-    f":red-badge[:material/functions: {latest_total_str}] "
-    f":green-badge[:material/globe: {latest_terrestrial_str}] "
-    f":blue-badge[:material/stars_2: {latest_cosmic_str}]",
-    help="Latest total, terrestrial, and cosmic ambient dose rate components",
-)
 #st.badge(f"Latest {latest_total}", icon=":material/check:", color="green")
 #st.caption(f"{latest_total}")
 
@@ -527,7 +524,7 @@ with c1:
             min_col="min_1h",
             max_col="max_1h",
             value_col="day_value",
-            title=f"Daily Value",
+            title=f"Daily Value • {station_name}",
             xaxis_title="Day",
             range_name="Daily range",
             value_name="Daily value",
@@ -567,20 +564,45 @@ with c1:
 # Show loc
 # ============================================================
 
+popup_html = f"""
+<div style="font-size: 12px; line-height: 1.3;">
+    <b>{selected_row['name']}</b><br>
+    PLZ: {selected_row['plz']}<br>
+    ID: {selected_row['kenn']}
+</div>
+"""
+
 with c2:
     with st.container(border=True, height=500):
     
-        st.markdown(f"{station_name} · PLZ {selected_row['plz']} · ID {selected_row['kenn']}")
-    
-        df_map = pd.DataFrame(
-            {
-                "lat": [selected_row["lat"]],
-                "lon": [selected_row["lon"]],
-            },
+        #st.markdown(f"{station_name} · PLZ {selected_row['plz']} · ID {selected_row['kenn']}")
+        st.markdown(
+            f":gray-badge[:material/location_on: {station_name}] "
+            f":red-badge[:material/functions: {latest_total_str}] "
+            f":green-badge[:material/globe: {latest_terrestrial_str}] "
+            f":blue-badge[:material/stars_2: {latest_cosmic_str}]",
+            help="Latest total, terrestrial, and cosmic ambient dose rate components",
         )
     
-        st.map(df_map, zoom=10, height=430)
+        m = folium.Map(
+            location=[selected_row["lat"], selected_row["lon"]],
+            zoom_start=11,
+            tiles="OpenStreetMap",
+            scrollWheelZoom=False,
+        )
 
+        folium.CircleMarker(
+            location=[selected_row["lat"], selected_row["lon"]],
+            radius=6,
+            color="#1d4ed8",
+            fill=True,
+            fill_color="#2563eb",
+            fill_opacity=0.55,
+            tooltip=selected_row["name"],
+            popup=folium.Popup(popup_html, max_width=250),
+        ).add_to(m)
+
+        st_folium(m, width=None, height=430)
 
 df_24h_weekly["week_display"] = (
     pd.to_datetime(df_24h_weekly["week_start"]).dt.strftime("%b %d")
@@ -595,7 +617,7 @@ with st.container(border=True):
         min_col="min_24h",
         max_col="max_24h",
         value_col="week_value",
-        title=f"Weekly Value",
+        title=f"Weekly Value • {station_name}",
         xaxis_title="Date",
         range_name="Weekly range",
         value_name="Weekly value",
