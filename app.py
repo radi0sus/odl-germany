@@ -527,7 +527,7 @@ with c1:
             min_col="min_1h",
             max_col="max_1h",
             value_col="day_value",
-            title=f"Daily Value · {station_name} · PLZ: {selected_row['plz']} · ID: {selected_row['kenn']}",
+            title=f"Daily Value",
             xaxis_title="Day",
             range_name="Daily range",
             value_name="Daily value",
@@ -570,6 +570,8 @@ with c1:
 with c2:
     with st.container(border=True, height=500):
     
+        st.markdown(f"{station_name} · PLZ {selected_row['plz']} · ID {selected_row['kenn']}")
+    
         df_map = pd.DataFrame(
             {
                 "lat": [selected_row["lat"]],
@@ -577,7 +579,7 @@ with c2:
             },
         )
     
-        st.map(df_map, zoom=10, height=470)
+        st.map(df_map, zoom=10, height=430)
 
 
 df_24h_weekly["week_display"] = (
@@ -593,7 +595,7 @@ with st.container(border=True):
         min_col="min_24h",
         max_col="max_24h",
         value_col="week_value",
-        title=f"Weekly Value · {station_name} · PLZ: {selected_row['plz']} · ID: {selected_row['kenn']}",
+        title=f"Weekly Value",
         xaxis_title="Date",
         range_name="Weekly range",
         value_name="Weekly value",
