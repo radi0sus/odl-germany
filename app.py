@@ -463,7 +463,7 @@ c1, c2 = st.columns([2,1])
 
 with st.container(border=True):
 
-    m1, m2, m3, m4, m5 = st.columns(5)
+    m1, m2, m3, m4 = st.columns(4)
     
     m1.metric(
         "Latest 1h value",
@@ -482,12 +482,12 @@ with st.container(border=True):
         f":blue[{mean_7d:.3f} µSv/h]" if mean_7d is not None else "n/a",
     )
     
-    m4.metric(
-        "30-day mean",
-        f":blue[{mean_30d:.3f} µSv/h]" if mean_30d is not None else "n/a",
-    )
+#    m4.metric(
+#        "30-day mean",
+#        f":blue[{mean_30d:.3f} µSv/h]" if mean_30d is not None else "n/a",
+#    )
     
-    m5.metric(
+    m4.metric(
         "365-day mean",
         f":blue[{mean_365d:.3f} µSv/h]" if mean_365d is not None else "n/a",
     )
@@ -501,8 +501,7 @@ with st.container(border=True):
 c1, c2 = st.columns([2,1],vertical_alignment="bottom")
 
 with c1:
-    with st.container(border=True, height=500):
-        
+    with st.container(border=True, height=500):   
         fig_day = make_range_plot(
             df=df_daily,
             x_col="day",
@@ -513,7 +512,7 @@ with c1:
             xaxis_title="Day",
             range_name="Daily range",
             value_name="Daily value",
-            bar_width=6 * 24 * 60 * 1000,
+            bar_width=6 * 24 * 120 * 1000,
             bargap=0.02,
         )
         
