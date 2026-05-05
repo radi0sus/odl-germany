@@ -429,7 +429,16 @@ def make_range_plot(
     )
 
     return fig
- 
+
+#st.markdown(f"{station_name} · PLZ {selected_row['plz']} · ID {selected_row['kenn']}")
+st.markdown(
+    f":gray-badge[:material/location_on: {station_name}] "
+    f":red-badge[:material/functions: {latest_total_str}] "
+    f":green-badge[:material/globe: {latest_terrestrial_str}] "
+    f":blue-badge[:material/stars_2: {latest_cosmic_str}]",
+    help="Latest total, terrestrial, and cosmic ambient dose rate components",
+)
+
 # ============================================================
 # KPIs
 # ============================================================
@@ -486,7 +495,6 @@ with st.container(border=True):
         delta=f"{delta_1h:+.3f}" if delta_1h is not None else None,
     )
        
-    
     m2.metric(
         "Latest 24h value (µSv/h)",
         f":blue[{latest_24h:.3f}]" if latest_24h is not None else "n/a",
@@ -514,51 +522,50 @@ with st.container(border=True):
 # Show plots
 # ============================================================
 
-c1, c2 = st.columns([2,1],vertical_alignment="bottom")
+c1, c2 = st.columns([2,1])
 
-with c1:
-    with st.container(border=True, height=500):   
-        fig_day = make_range_plot(
-            df=df_daily,
-            x_col="day",
-            min_col="min_1h",
-            max_col="max_1h",
-            value_col="day_value",
-            title=f"Daily Value • {station_name}",
-            xaxis_title="Day",
-            range_name="Daily range",
-            value_name="Daily value",
-            bar_width=6 * 24 * 120 * 1000,
-            bargap=0.02,
+with c1.container(border=True, height="stretch"):
+    fig_day = make_range_plot(
+        df=df_daily,
+        x_col="day",
+        min_col="min_1h",
+        max_col="max_1h",
+        value_col="day_value",
+        title=f"Daily Value • {station_name}",
+        xaxis_title="Day",
+        range_name="Daily range",
+        value_name="Daily value",
+        bar_width=6 * 24 * 120 * 1000,
+        bargap=0.02,
+    )
+    
+    if mean_7d is not None:
+        fig_day.add_shape(
+            #legendrank=0,
+            showlegend=True,
+            type="line",
+            xref="paper",
+            line_dash="dot",
+            line_color="rgba(120, 120, 120, 0.65)",
+            line_width=1.5,
+            name=f"7-day mean: {mean_7d:.3f}  µSv/h",
+            #range_name=f"{mean_365d:.3f}",
+            x0=0,
+            x1=1,
+            y0=mean_7d,
+            y1=mean_7d,
         )
         
-        if mean_7d is not None:
-            fig_day.add_shape(
-                #legendrank=0,
-                showlegend=True,
-                type="line",
-                xref="paper",
-                line_dash="dot",
-                line_color="rgba(120, 120, 120, 0.65)",
-                line_width=1.5,
-                name=f"7-day mean: {mean_7d:.3f}  µSv/h",
-                #range_name=f"{mean_365d:.3f}",
-                x0=0,
-                x1=1,
-                y0=mean_7d,
-                y1=mean_7d,
-            )
-            
-        fig_day.update_layout(legend=dict(
-            orientation="h",
-            #entrywidth=70,
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
+    fig_day.update_layout(legend=dict(
+        orientation="h",
+        #entrywidth=70,
+        yanchor="bottom",
+        y=1.02,
+        xanchor="right",
             x=1
         ))
         
-        st.plotly_chart(fig_day, width="stretch")
+    st.plotly_chart(fig_day, height="stretch")
     
 # ============================================================
 # Show loc
@@ -572,37 +579,28 @@ popup_html = f"""
 </div>
 """
 
-with c2:
-    with st.container(border=True, height=500):
-    
-        #st.markdown(f"{station_name} · PLZ {selected_row['plz']} · ID {selected_row['kenn']}")
-        st.markdown(
-            f":gray-badge[:material/location_on: {station_name}] "
-            f":red-badge[:material/functions: {latest_total_str}] "
-            f":green-badge[:material/globe: {latest_terrestrial_str}] "
-            f":blue-badge[:material/stars_2: {latest_cosmic_str}]",
-            help="Latest total, terrestrial, and cosmic ambient dose rate components",
-        )
-    
-        m = folium.Map(
-            location=[selected_row["lat"], selected_row["lon"]],
-            zoom_start=11,
-            tiles="OpenStreetMap",
-            scrollWheelZoom=False,
-        )
+with c2.container(border=True, height="stretch"):
 
-        folium.CircleMarker(
-            location=[selected_row["lat"], selected_row["lon"]],
-            radius=6,
-            color="#1d4ed8",
-            fill=True,
-            fill_color="#2563eb",
-            fill_opacity=0.55,
-            tooltip=selected_row["name"],
-            popup=folium.Popup(popup_html, max_width=250),
-        ).add_to(m)
+    m = folium.Map(
+        location=[selected_row["lat"], selected_row["lon"]],
+        zoom_start=11,
+        tiles="OpenStreetMap",
+        scrollWheelZoom=False,
+    )
 
-        st_folium(m, width=None, height=430)
+    folium.CircleMarker(
+        location=[selected_row["lat"], selected_row["lon"]],
+        radius=6,
+        color="#1d4ed8",
+        fill=True,
+        fill_color="#2563eb",
+        fill_opacity=0.55,
+        tooltip=selected_row["name"],
+        popup=folium.Popup(popup_html, max_width=250),
+    ).add_to(m)
+
+    st_folium(m, height=450, width=None)
+    
 
 df_24h_weekly["week_display"] = (
     pd.to_datetime(df_24h_weekly["week_start"]).dt.strftime("%b %d")
@@ -652,6 +650,6 @@ with st.container(border=True):
         xanchor="right",
         x=1
     ))
-    st.plotly_chart(fig_week, width="stretch")
+    st.plotly_chart(fig_week)
 
 st.caption("Data from [ODL-Info](https://odlinfo.bfs.de)")
