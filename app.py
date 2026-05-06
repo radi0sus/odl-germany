@@ -208,7 +208,37 @@ def load_layer(layer_name: str, kenn: str) -> pd.DataFrame:
 
     return df
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def load_openmeteo_precip_daily(lat: float, lon: float) -> pd.DataFrame:
+    end_date = pd.Timestamp.now("UTC").date()
+    start_date = end_date - pd.Timedelta(days=14)
 
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "daily": "precipitation_sum",
+        "timezone": "Europe/Berlin",
+    }
+
+    url = "https://archive-api.open-meteo.com/v1/archive?" + urllib.parse.urlencode(params)
+
+    with urllib.request.urlopen(url, timeout=60) as response:
+        data = json.load(response)
+
+    daily = data.get("daily", {}) or {}
+
+    times = daily.get("time", []) or []
+    precip = daily.get("precipitation_sum", []) or []
+
+    df = pd.DataFrame({
+        "day": pd.to_datetime(times).date if len(times) > 0 else [],
+        "precip_mm": precip,
+    })
+
+    return df
+    
 try:
     df_stations = load_stations()
 except Exception as exc:
@@ -252,6 +282,7 @@ latest_terrestrial_str = f"{latest_terrestrial:.3f} µSv/h" if latest_terrestria
 try:
     df_1h = load_layer(ONE_HOUR_LAYER, selected_kenn)
     df_24h = load_layer(TWENTYFOUR_HOUR_LAYER, selected_kenn)
+    df_precip_daily = load_openmeteo_precip_daily(selected_row["lat"], selected_row["lon"])
 except Exception as exc:
     st.error(f"Could not load data: {exc}")
     st.stop()
@@ -291,8 +322,11 @@ df_24h_daily = (
           .rename(columns={"value": "value_24h"})
 )
 
+
 df_daily = df_1h_daily.merge(df_24h_daily, on="day", how="left")
+df_daily = df_daily.merge(df_precip_daily, on="day", how="left")
 df_daily["day_value"] = df_daily["value_24h"].fillna(df_daily["mean_1h"])
+df_daily["precip_mm"] = df_daily["precip_mm"].fillna(0.0)
 
 # Year
 
@@ -327,86 +361,64 @@ df_24h_weekly = df_24h_weekly[df_24h_weekly["n_days"] == 7].copy()
 # Plot 
 # ============================================================
 
-def make_range_plot(
+def make_plot_7_days(
     df: pd.DataFrame,
-    x_col: str,
-    min_col: str,
-    max_col: str,
-    value_col: str,
-    title: str,
-    xaxis_title: str,
-    yaxis_title: str = "ODL (µSv/h)",
-    range_name: str = "Range",
-    value_name: str = "Value",
-    hover_col: str | None = None,
-    bar_width=None,
-    bar_gap=None,
-    bargap: float = 0.02,
+    station_name: str,
 ):
     plot_df = df.copy()
-    plot_df["plot_range"] = plot_df[max_col] - plot_df[min_col]
+    plot_df["plot_range"] = plot_df["max_1h"] - plot_df["min_1h"]
 
-    if hover_col is None:
-        customdata_bar = plot_df[[max_col]].values
-        customdata_scatter = plot_df[[min_col, max_col]].values
-
-        hover_bar = (
-            "<b>%{x}</b><br>"
-            "Min: %{base:.3f} µSv/h<br>"
-            "Max: %{customdata[0]:.3f} µSv/h<br>"
-            "<extra></extra>"
-        )
-
-        hover_scatter = (
-            "<b>%{x}</b><br>"
-            f"{value_name}: %{{y:.3f}} µSv/h<br>"
-            "Min: %{customdata[0]:.3f} µSv/h<br>"
-            "Max: %{customdata[1]:.3f} µSv/h<br>"
-            "<extra></extra>"
-        )
-    else:
-        customdata_bar = plot_df[[hover_col, max_col]].values
-        customdata_scatter = plot_df[[hover_col, min_col, max_col]].values
-
-        hover_bar = (
-            "<b>%{customdata[0]}</b><br>"
-            "Min: %{base:.3f} µSv/h<br>"
-            "Max: %{customdata[1]:.3f} µSv/h<br>"
-            "<extra></extra>"
-        )
-
-        hover_scatter = (
-            "<b>%{customdata[0]}</b><br>"
-            f"{value_name}: %{{y:.3f}} µSv/h<br>"
-            "Min: %{customdata[1]:.3f} µSv/h<br>"
-            "Max: %{customdata[2]:.3f} µSv/h<br>"
-            "<extra></extra>"
-        )
+    customdata_bar = plot_df[["max_1h"]].values
+    customdata_scatter = plot_df[["min_1h", "max_1h"]].values
 
     fig = go.Figure()
 
     fig.add_trace(
         go.Bar(
-            x=plot_df[x_col],
+            x=plot_df["day"],
+            y=plot_df["precip_mm"],
+            name="Precipitation",
+            yaxis="y2",
+            marker=dict(
+                color="rgba(122, 178, 255, 0.22)",
+                line=dict(color="rgba(102, 178, 255, 0.0)", width=0),
+            ),
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Precipitation: %{y:.1f} mm<br>"
+                "<extra></extra>"
+            ),
+            width=6 * 24 * 300 * 1000,
+        )
+    )
+
+    fig.add_trace(
+        go.Bar(
+            x=plot_df["day"],
             y=plot_df["plot_range"],
-            base=plot_df[min_col],
-            name=range_name,
+            base=plot_df["min_1h"],
+            name="Daily range",
             marker=dict(
                 color="rgba(0, 153, 255, 0.5)",
                 line=dict(color="rgba(0, 51, 153, 1)", width=1.5),
             ),
             customdata=customdata_bar,
-            hovertemplate=hover_bar,
-            width=bar_width,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Min: %{base:.3f} µSv/h<br>"
+                "Max: %{customdata[0]:.3f} µSv/h<br>"
+                "<extra></extra>"
+            ),
+            width=6 * 24 * 120 * 1000,
         )
     )
 
     fig.add_trace(
         go.Scatter(
-            x=plot_df[x_col],
-            y=plot_df[value_col],
+            x=plot_df["day"],
+            y=plot_df["day_value"],
             mode="lines+markers",
-            name=value_name,
+            name="Daily value",
             line=dict(color="rgba(0, 0, 255, 0.9)", width=2, dash=None),
             line_shape="spline",
             marker=dict(
@@ -416,16 +428,100 @@ def make_range_plot(
                 line=dict(color="rgba(0, 0, 255, 0.9)", width=1),
             ),
             customdata=customdata_scatter,
-            hovertemplate=hover_scatter,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Daily value: %{y:.3f} µSv/h<br>"
+                "Min: %{customdata[0]:.3f} µSv/h<br>"
+                "Max: %{customdata[1]:.3f} µSv/h<br>"
+                "<extra></extra>"
+            ),
         )
     )
+
     fig.update_layout(
-        title=title,
-        xaxis_title=xaxis_title,
-        yaxis_title=yaxis_title,
+        title=f"Daily Value • {station_name}",
+        xaxis_title="Day",
+        yaxis_title="ODL (µSv/h)",
+        yaxis2=dict(
+            title="Precipitation (mm)",
+            overlaying="y",
+            side="right",
+            showgrid=False,
+            rangemode="tozero",
+        ),
         template="plotly_white",
         barmode="overlay",
-        bargap=bargap,
+        bargap=0.02,
+    )
+
+    return fig
+
+
+def make_plot_year(
+    df: pd.DataFrame,
+    station_name: str,
+):
+    plot_df = df.copy()
+    plot_df["plot_range"] = plot_df["max_24h"] - plot_df["min_24h"]
+
+    customdata_bar = plot_df[["week_label", "max_24h"]].values
+    customdata_scatter = plot_df[["week_label", "min_24h", "max_24h"]].values
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Bar(
+            x=plot_df["week_start"],
+            y=plot_df["plot_range"],
+            base=plot_df["min_24h"],
+            name="Weekly range",
+            marker=dict(
+                color="rgba(0, 153, 255, 0.5)",
+                line=dict(color="rgba(0, 51, 153, 1)", width=1.5),
+            ),
+            customdata=customdata_bar,
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Min: %{base:.3f} µSv/h<br>"
+                "Max: %{customdata[1]:.3f} µSv/h<br>"
+                "<extra></extra>"
+            ),
+            width=6 * 24 * 60 * 50 * 1000,
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=plot_df["week_start"],
+            y=plot_df["week_value"],
+            mode="lines+markers",
+            name="Weekly value",
+            line=dict(color="rgba(0, 0, 255, 0.9)", width=2, dash=None),
+            line_shape="spline",
+            marker=dict(
+                size=8,
+                color="rgba(255, 255, 255, 1)",
+                symbol="circle",
+                line=dict(color="rgba(0, 0, 255, 0.9)", width=1),
+            ),
+            customdata=customdata_scatter,
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Weekly value: %{y:.3f} µSv/h<br>"
+                "Min: %{customdata[1]:.3f} µSv/h<br>"
+                "Max: %{customdata[2]:.3f} µSv/h<br>"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    fig.update_layout(
+        title=f"Weekly Value • {station_name}",
+        xaxis_title="Date",
+        yaxis_title="ODL (µSv/h)",
+        template="plotly_white",
+        barmode="overlay",
+        bargap=0.02,
     )
 
     return fig
@@ -525,18 +621,9 @@ with st.container(border=True):
 c1, c2 = st.columns([2,1])
 
 with c1.container(border=True, height="stretch"):
-    fig_day = make_range_plot(
+    fig_day = make_plot_7_days(
         df=df_daily,
-        x_col="day",
-        min_col="min_1h",
-        max_col="max_1h",
-        value_col="day_value",
-        title=f"Daily Value • {station_name}",
-        xaxis_title="Day",
-        range_name="Daily range",
-        value_name="Daily value",
-        bar_width=6 * 24 * 120 * 1000,
-        bargap=0.02,
+        station_name=station_name,
     )
     
     if mean_7d is not None:
@@ -602,26 +689,10 @@ with c2.container(border=True, height="stretch"):
     st_folium(m, height=450, width=None)
     
 
-df_24h_weekly["week_display"] = (
-    pd.to_datetime(df_24h_weekly["week_start"]).dt.strftime("%b %d")
-    + " – " +
-    pd.to_datetime(df_24h_weekly["week_end"]).dt.strftime("%b %d, %Y")
-)
-
 with st.container(border=True):
-    fig_week = make_range_plot(
+    fig_week = make_plot_year(
         df=df_24h_weekly,
-        x_col="week_start",
-        min_col="min_24h",
-        max_col="max_24h",
-        value_col="week_value",
-        title=f"Weekly Value • {station_name}",
-        xaxis_title="Date",
-        range_name="Weekly range",
-        value_name="Weekly value",
-        hover_col="week_display",
-        bar_width=6 * 24 * 60 * 50 * 1000,
-        bargap=0.02,
+        station_name=station_name,
     )
     
     if mean_365d is not None:
