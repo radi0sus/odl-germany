@@ -664,7 +664,7 @@ def make_plot_7_days(
     # Layout
     # ------------------------------------------------------------
     fig.update_layout(
-        title=f"Daily Value • {station_name}",
+        title=f"Daily Value (7 days) • {station_name}",
         template="plotly_white",
         barmode="overlay",
         bargap=0,
@@ -752,7 +752,7 @@ def make_plot_year(
     if plot_odl.empty:
         fig = go.Figure()
         fig.update_layout(
-            title=f"Daily Value • {station_name}",
+            title=f"Daily Value (year) • {station_name}",
             template="plotly_white",
         )
         return fig
@@ -1024,7 +1024,7 @@ def make_plot_year(
     # Layout
     # ------------------------------------------------------------
     fig.update_layout(
-        title=f"Daily Value • {station_name}",
+        title=f"Daily Value (year) • {station_name}",
         template="plotly_white",
         barmode="overlay",
         bargap=0,
