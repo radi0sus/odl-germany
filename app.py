@@ -267,7 +267,7 @@ station_labels = df_stations["label"].tolist()
 selected_label = st.selectbox(
     "Search station: City / Location, PLZ, or Station ID",
     options=station_labels,
-    index=145,
+    index=142,
 )
 
 selected_row = df_stations[df_stations["label"] == selected_label].iloc[0]
@@ -278,9 +278,9 @@ latest_total = selected_row["value_total"]
 latest_cosmic = selected_row["value_cosmic"]
 latest_terrestrial = selected_row["value_terrestrial"]
 
-latest_total_str = f"{latest_total:.3f} µSv/h" if latest_total is not None else "n/a"
-latest_cosmic_str = f"{latest_cosmic:.3f} µSv/h" if latest_cosmic is not None else "n/a"
-latest_terrestrial_str = f"{latest_terrestrial:.3f} µSv/h" if latest_terrestrial is not None else "n/a"
+#latest_total_str = f"{latest_total:.3f} µSv/h" if latest_total is not None else "n/a"
+#latest_cosmic_str = f"{latest_cosmic:.3f} µSv/h" if latest_cosmic is not None else "n/a"
+#latest_terrestrial_str = f"{latest_terrestrial:.3f} µSv/h" if latest_terrestrial is not None else "n/a"
 
 
 try:
@@ -1103,13 +1103,13 @@ def make_plot_year(
     return fig
     
 #st.markdown(f"{station_name} · PLZ {selected_row['plz']} · ID {selected_row['kenn']}")
-st.markdown(
-    f":gray-badge[:material/location_on: {station_name}] "
-    f":red-badge[:material/functions: {latest_total_str}] "
-    f":green-badge[:material/globe: {latest_terrestrial_str}] "
-    f":blue-badge[:material/stars_2: {latest_cosmic_str}]",
-    help="Latest total, terrestrial, and cosmic ambient dose rate components",
-)
+#st.markdown(
+#    f":gray-badge[:material/location_on: {station_name}] "
+#    f":red-badge[:material/functions: {latest_total_str}] "
+#    f":green-badge[:material/globe: {latest_terrestrial_str}] "
+#    f":blue-badge[:material/stars_2: {latest_cosmic_str}]",
+#    help="Latest total, terrestrial, and cosmic ambient dose rate components",
+#)
 
 # ============================================================
 # KPIs
@@ -1155,38 +1155,122 @@ delta_1h = latest_1h - prev_1h if latest_1h is not None and prev_1h is not None 
 delta_24h = latest_24h - prev_24h if latest_24h is not None and prev_24h is not None else None
 
 
-c1, c2 = st.columns([2,1])
+# ============================================================
+# KPIs + component donut
+# ============================================================
 
-with st.container(border=True):
+kpi_box, donut_box = st.columns([2, 1])
 
-    m1, m2, m3, m4 = st.columns(4)
-    
-    m1.metric(
-        "Latest 1h value (µSv/h)",
-        f":blue[{latest_1h:.3f}]" if latest_1h is not None else "n/a",
-        delta=f"{delta_1h:+.3f}" if delta_1h is not None else None,
+with kpi_box.container(border=True, height="stretch"):
+
+    r1c1, r1c2 = st.columns(2)
+
+    with r1c1:
+        st.metric(
+            "Latest 1h value (µSv/h)",
+            f":blue[{latest_1h:.3f}]" if latest_1h is not None else "n/a",
+            delta=f"{delta_1h:+.3f}" if delta_1h is not None else None,
+        )
+
+    with r1c2:
+        st.metric(
+            "Latest 24h value (µSv/h)",
+            f":blue[{latest_24h:.3f}]" if latest_24h is not None else "n/a",
+            delta=f"{delta_24h:+.3f}" if delta_24h is not None else None,
+        )
+
+    r2c1, r2c2 = st.columns(2)
+
+    with r2c1:
+        st.metric(
+            "7-day mean (µSv/h)",
+            f":blue[{mean_7d:.3f}]" if mean_7d is not None else "n/a",
+        )
+
+    with r2c2:
+        st.metric(
+            "365-day mean (µSv/h)",
+            f":blue[{mean_365d:.3f}]" if mean_365d is not None else "n/a",
+        )
+
+
+with donut_box.container(border=True, height="stretch"):
+
+    terrestrial_val = latest_terrestrial if pd.notna(latest_terrestrial) else 0.0
+    cosmic_val = latest_cosmic if pd.notna(latest_cosmic) else 0.0
+    component_sum = terrestrial_val + cosmic_val
+
+    st.markdown(
+        "<div style='font-size:0.9rem; font-weight:600; margin-bottom:0.1rem;'>"
+        "Dose-rate components"
+        "</div>",
+        unsafe_allow_html=True,
     )
-       
-    m2.metric(
-        "Latest 24h value (µSv/h)",
-        f":blue[{latest_24h:.3f}]" if latest_24h is not None else "n/a",
-        delta=f"{delta_24h:+.3f}" if delta_24h is not None else None,
-    )
-    
-    m3.metric(
-        "7-day mean (µSv/h)",
-        f":blue[{mean_7d:.3f}]" if mean_7d is not None else "n/a",
-    )
-    
-#    m4.metric(
-#        "30-day mean",
-#        f":blue[{mean_30d:.3f} µSv/h]" if mean_30d is not None else "n/a",
-#    )
-    
-    m4.metric(
-        "365-day mean (µSv/h)",
-        f":blue[{mean_365d:.3f}]" if mean_365d is not None else "n/a",
-    )
+
+    if component_sum > 0:
+        fig_components = go.Figure(
+            data=[
+                go.Pie(
+                    labels=["Terrestrial", "Cosmic"],
+                    values=[terrestrial_val, cosmic_val],
+                    hole=0.64,
+                    sort=False,
+                    direction="clockwise",
+                    marker=dict(
+                        colors=[
+                            "rgba(22, 163, 74, 0.88)",   # terrestrial green
+                            "rgba(37, 99, 235, 0.88)",  # cosmic blue
+                        ],
+                        line=dict(color="white", width=2),
+                    ),
+                    textinfo="percent",
+                    textfont=dict(size=12),
+                    hovertemplate=(
+                        "%{label}: %{value:.3f} µSv/h<br>"
+                        "%{percent}"
+                        "<extra></extra>"
+                    ),
+                )
+            ]
+        )
+
+        center_text = (
+            f"{latest_total:.3f}<br>µSv/h"
+            if latest_total is not None and pd.notna(latest_total)
+            else ""
+        )
+
+        fig_components.update_layout(
+            height=185,
+            margin=dict(l=0, r=0, t=0, b=0),
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.20,
+                xanchor="center",
+                x=0.5,
+                font=dict(size=11),
+            ),
+            annotations=[
+                dict(
+                    text=center_text,
+                    x=0.5,
+                    y=0.5,
+                    font=dict(size=13, color="#374151"),
+                    showarrow=False,
+                )
+            ],
+        )
+
+        st.plotly_chart(
+            fig_components,
+            width="stretch",
+            config={"displayModeBar": False},
+        )
+
+    else:
+        st.caption("Component data not available")
     
 
 
@@ -1234,35 +1318,128 @@ with c1.container(border=True, height="stretch"):
 # Show loc
 # ============================================================
 
-popup_html = f"""
-<div style="font-size: 12px; line-height: 1.3;">
-    <b>{selected_row['name']}</b><br>
-    PLZ: {selected_row['plz']}<br>
-    ID: {selected_row['kenn']}
-</div>
-"""
-
 with c2.container(border=True, height="stretch"):
 
+    def fmt_odl(value):
+        return f"{value:.3f} µSv/h" if pd.notna(value) else "n/a"
+
+    def odl_color(value):
+        """
+        Fixed ODL color classes.
+        Chosen to stay visible on OpenStreetMap:
+        saturated fill + dark outline in marker.
+        """
+        if pd.isna(value):
+            return "#9ca3af"  # gray / no data
+
+        if value < 0.08:
+            return "#2c7bb6"  # blue
+        elif value < 0.12:
+            return "#1a9850"  # green
+        elif value < 0.16:
+            return "#fdae61"  # amber
+        elif value < 0.25:
+            return "#f46d43"  # orange-red
+        else:
+            return "#d73027"  # red
+
+    def popup_html_for_station(row):
+        value_total_str = fmt_odl(row["value_total"])
+        value_cosmic_str = fmt_odl(row["value_cosmic"])
+        value_terrestrial_str = fmt_odl(row["value_terrestrial"])
+
+        return f"""
+        <div style="font-size: 12px; line-height: 1.35;">
+            <b>{row['name']}</b><br>
+            PLZ: {row['plz']}<br>
+            ID: {row['kenn']}<br>
+            <hr style="margin:4px 0;">
+            ODL: {value_total_str}<br>
+            Terrestrial: {value_terrestrial_str}<br>
+            Cosmic: {value_cosmic_str}
+        </div>
+        """
+
+    # ------------------------------------------------------------
+    # Map centered on selected station
+    # ------------------------------------------------------------
     m = folium.Map(
         location=[selected_row["lat"], selected_row["lon"]],
-        zoom_start=11,
+        zoom_start=10,
         tiles="OpenStreetMap",
         scrollWheelZoom=False,
+        prefer_canvas=True,
     )
+
+    # ------------------------------------------------------------
+    # Select nearest neighbouring stations
+    # ------------------------------------------------------------
+    n_neighbours = 8
+
+    stations_map_df = df_stations.dropna(subset=["lat", "lon"]).copy()
+
+    stations_map_df["dist_sq"] = (
+        (stations_map_df["lat"] - selected_row["lat"]) ** 2
+        + (stations_map_df["lon"] - selected_row["lon"]) ** 2
+    )
+
+    nearby_df = (
+        stations_map_df[stations_map_df["kenn"] != selected_kenn]
+        .sort_values("dist_sq")
+        .head(n_neighbours)
+        .copy()
+    )
+
+    # ------------------------------------------------------------
+    # Nearby stations
+    # ------------------------------------------------------------
+    for _, row in nearby_df.iterrows():
+
+        value_total_str = fmt_odl(row["value_total"])
+        marker_color = odl_color(row["value_total"])
+
+        folium.CircleMarker(
+            location=[row["lat"], row["lon"]],
+            radius=5.5,
+            color="#111827",
+            weight=1.6,
+            fill=True,
+            fill_color=marker_color,
+            fill_opacity=0.88,
+            tooltip=f"{row['name']} · {value_total_str}",
+            popup=folium.Popup(
+                popup_html_for_station(row),
+                max_width=260,
+            ),
+        ).add_to(m)
+
+    # ------------------------------------------------------------
+    # Selected station highlighted
+    # ------------------------------------------------------------
+    selected_total_str = fmt_odl(selected_row["value_total"])
+    selected_color = odl_color(selected_row["value_total"])
 
     folium.CircleMarker(
         location=[selected_row["lat"], selected_row["lon"]],
-        radius=6,
-        color="#1d4ed8",
+        radius=10,
+        color="#111827",
+        weight=3.2,
         fill=True,
-        fill_color="#2563eb",
-        fill_opacity=0.55,
-        tooltip=selected_row["name"],
-        popup=folium.Popup(popup_html, max_width=250),
+        fill_color=selected_color,
+        fill_opacity=0.95,
+        tooltip=f"{selected_row['name']} · {selected_total_str}",
+        popup=folium.Popup(
+            popup_html_for_station(selected_row),
+            max_width=280,
+        ),
     ).add_to(m)
 
-    st_folium(m, height=450, width=None)
+    st_folium(
+        m,
+        height=450,
+        width=None,
+        returned_objects=[],
+    )
     
 
 with st.container(border=True):
