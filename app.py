@@ -211,14 +211,14 @@ def load_layer(layer_name: str, kenn: str) -> pd.DataFrame:
 @st.cache_data(ttl=1800, show_spinner=False)
 def load_openmeteo_precip_daily(lat: float, lon: float) -> pd.DataFrame:
     end_date = pd.Timestamp.now("UTC").date()
-    start_date = end_date - pd.Timedelta(days=14)
+    start_date = end_date - pd.Timedelta(days=365)
 
     params = {
         "latitude": lat,
         "longitude": lon,
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
-        "daily": "precipitation_sum",
+        "daily": "precipitation_sum,rain_sum,snowfall_sum",
         "timezone": "Europe/Berlin",
     }
 
@@ -231,10 +231,14 @@ def load_openmeteo_precip_daily(lat: float, lon: float) -> pd.DataFrame:
 
     times = daily.get("time", []) or []
     precip = daily.get("precipitation_sum", []) or []
+    rain   = daily.get("rain_sum", []) or []
+    snow   = daily.get("snowfall_sum", []) or []
 
     df = pd.DataFrame({
         "day": pd.to_datetime(times).date if len(times) > 0 else [],
         "precip_mm": precip,
+        "rain_mm": rain if rain else precip,
+        "snow_mm": snow if snow else [0] * len(precip),
     })
 
     return df
@@ -327,6 +331,8 @@ df_daily = df_1h_daily.merge(df_24h_daily, on="day", how="left")
 df_daily = df_daily.merge(df_precip_daily, on="day", how="left")
 df_daily["day_value"] = df_daily["value_24h"].fillna(df_daily["mean_1h"])
 df_daily["precip_mm"] = df_daily["precip_mm"].fillna(0.0)
+df_daily["rain_mm"] = df_daily["rain_mm"].fillna(0.0) if "rain_mm" in df_daily.columns else 0.0
+df_daily["snow_mm"] = df_daily["snow_mm"].fillna(0.0) if "snow_mm" in df_daily.columns else 0.0
 
 # Year
 
@@ -357,6 +363,20 @@ df_24h_weekly["week_label"] = (
 df_24h_weekly = df_24h_weekly[df_24h_weekly["n_days"] == 7].copy()
 #df_24h_weekly["range_24h"] = df_24h_weekly["max_24h"] - df_24h_weekly["min_24h"]
 
+# Wöchentlichen Niederschlag aus täglichen Daten aggregieren
+df_precip_weekly = (
+    df_precip_daily.assign(day=pd.to_datetime(df_precip_daily["day"]))
+    .assign(
+        iso_year=lambda x: x["day"].dt.isocalendar().year,
+        iso_week=lambda x: x["day"].dt.isocalendar().week,
+    )
+    .groupby(["iso_year", "iso_week"], as_index=False)
+    .agg(precip_mm=("precip_mm", "sum"))
+)
+
+df_24h_weekly = df_24h_weekly.merge(df_precip_weekly, on=["iso_year", "iso_week"], how="left")
+df_24h_weekly["precip_mm"] = df_24h_weekly["precip_mm"].fillna(0.0)
+
 # ============================================================
 # Plot 
 # ============================================================
@@ -365,33 +385,48 @@ def make_plot_7_days(
     df: pd.DataFrame,
     station_name: str,
 ):
+    from plotly.subplots import make_subplots
+
     plot_df = df.copy()
     plot_df["plot_range"] = plot_df["max_1h"] - plot_df["min_1h"]
 
-    customdata_bar = plot_df[["max_1h"]].values
-    customdata_scatter = plot_df[["min_1h", "max_1h"]].values
+    rain_col = "rain_mm" if "rain_mm" in plot_df.columns else "precip_mm"
+    snow_col = "snow_mm" if "snow_mm" in plot_df.columns else None
 
-    fig = go.Figure()
+    max_precip = plot_df["precip_mm"].max() if plot_df["precip_mm"].max() > 0 else 1.0
 
-    fig.add_trace(
-        go.Bar(
-            x=plot_df["day"],
-            y=plot_df["precip_mm"],
-            name="Precipitation",
-            yaxis="y2",
-            marker=dict(
-                color="rgba(122, 178, 255, 0.22)",
-                line=dict(color="rgba(102, 178, 255, 0.0)", width=0),
-            ),
-            hovertemplate=(
-                "<b>%{x}</b><br>"
-                "Precipitation: %{y:.1f} mm<br>"
-                "<extra></extra>"
-            ),
-            width=6 * 24 * 300 * 1000,
-        )
+    rain_vals = plot_df[rain_col] if rain_col in plot_df.columns else plot_df["precip_mm"]
+    snow_vals = plot_df[snow_col] if snow_col and snow_col in plot_df.columns else pd.Series([0.0] * len(plot_df))
+
+    rain_colors = [
+        f"rgba(24,95,165,{round(0.2 + 0.75*(v/max_precip),2)})" if v > 0 else "rgba(24,95,165,0)"
+        for v in rain_vals
+    ]
+    snow_colors = [
+        f"rgba(180,178,200,{round(0.3 + 0.65*(v/max_precip),2)})" if v > 0 else "rgba(180,178,200,0)"
+        for v in snow_vals
+    ]
+
+    customdata = plot_df[["min_1h", "max_1h"]].values
+    hover_odl = (
+        #"<b>%{x}</b><br>"
+        "ODL: %{y:.3f} µSv/h<br>"
+        "Min: %{customdata[0]:.3f} µSv/h<br>"
+        "Max: %{customdata[1]:.3f} µSv/h<br>"
+        "<extra></extra>"
+    )
+    hover_rain = "⛆ %{y:.1f} mm<extra></extra>"
+    hover_snow = "❄ %{y:.1f} mm<extra></extra>"
+    rain_customdata = None
+
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        row_heights=[0.82, 0.18],
+        vertical_spacing=0.02,
     )
 
+    # Min-Max-Band
     fig.add_trace(
         go.Bar(
             x=plot_df["day"],
@@ -399,129 +434,234 @@ def make_plot_7_days(
             base=plot_df["min_1h"],
             name="Daily range",
             marker=dict(
-                color="rgba(0, 153, 255, 0.5)",
-                line=dict(color="rgba(0, 51, 153, 1)", width=1.5),
+                color="rgba(0, 153, 255, 0.35)",
+                line=dict(color="rgba(0, 51, 153, 0.7)", width=1),
             ),
-            customdata=customdata_bar,
-            hovertemplate=(
-                "<b>%{x}</b><br>"
-                "Min: %{base:.3f} µSv/h<br>"
-                "Max: %{customdata[0]:.3f} µSv/h<br>"
-                "<extra></extra>"
-            ),
+            customdata=customdata,
+            hoverinfo="skip",
             width=6 * 24 * 120 * 1000,
-        )
+        ),
+        row=1, col=1,
     )
 
+    # Tagesmittel
     fig.add_trace(
         go.Scatter(
             x=plot_df["day"],
             y=plot_df["day_value"],
             mode="lines+markers",
             name="Daily value",
-            line=dict(color="rgba(0, 0, 255, 0.9)", width=2, dash=None),
+            line=dict(color="rgba(24, 95, 165, 0.9)", width=2),
             line_shape="spline",
             marker=dict(
                 size=8,
                 color="rgba(255, 255, 255, 1)",
                 symbol="circle",
-                line=dict(color="rgba(0, 0, 255, 0.9)", width=1),
+                line=dict(color="rgba(24, 95, 165, 0.9)", width=1.5),
             ),
-            customdata=customdata_scatter,
-            hovertemplate=(
-                "<b>%{x}</b><br>"
-                "Daily value: %{y:.3f} µSv/h<br>"
-                "Min: %{customdata[0]:.3f} µSv/h<br>"
-                "Max: %{customdata[1]:.3f} µSv/h<br>"
-                "<extra></extra>"
-            ),
-        )
+            customdata=customdata,
+            hovertemplate=hover_odl,
+        ),
+        row=1, col=1,
     )
+
+    # Rain
+    fig.add_trace(
+        go.Bar(
+            x=plot_df["day"],
+            y=rain_vals,
+            name="Rain",
+            marker=dict(
+                color=rain_colors,
+                line=dict(color="rgba(24,95,165,0.7)", width=0.8),
+            ),
+            customdata=rain_customdata,
+            hovertemplate=hover_rain,
+        ),
+        row=2, col=1,
+    )
+
+    # Snow
+    if snow_col and snow_col in plot_df.columns:
+        fig.add_trace(
+            go.Bar(
+                x=plot_df["day"],
+                y=snow_vals,
+                name="Snow",
+                marker=dict(
+                    color=snow_colors,
+                    line=dict(color="rgba(140,140,160,0.7)", width=0.8),
+                ),
+                hovertemplate=hover_snow,
+            ),
+            row=2, col=1,
+        )
 
     fig.update_layout(
         title=f"Daily Value • {station_name}",
-        xaxis_title="Day",
-        yaxis_title="ODL (µSv/h)",
-        yaxis2=dict(
-            title="Precipitation (mm)",
-            overlaying="y",
-            side="right",
-            showgrid=False,
-            rangemode="tozero",
-        ),
         template="plotly_white",
-        barmode="overlay",
-        bargap=0.02,
+        barmode="stack",
+        bargap=0,
+        hovermode="x unified",
+        yaxis=dict(title="ODL"),
+        yaxis2=dict(title="⛆/❄", showgrid=False, title_standoff=5),
     )
 
     return fig
 
 
 def make_plot_year(
-    df: pd.DataFrame,
+    df_odl: pd.DataFrame,
+    df_precip: pd.DataFrame,
     station_name: str,
 ):
-    plot_df = df.copy()
-    plot_df["plot_range"] = plot_df["max_24h"] - plot_df["min_24h"]
+    from plotly.subplots import make_subplots
 
-    customdata_bar = plot_df[["week_label", "max_24h"]].values
-    customdata_scatter = plot_df[["week_label", "min_24h", "max_24h"]].values
+    plot_odl = df_odl.assign(day=df_odl["start_dt"].dt.date).copy()
+    plot_odl = plot_odl.sort_values("day")
 
-    fig = go.Figure()
+    max_precip = df_precip["precip_mm"].max() if not df_precip.empty else 1.0
+    if max_precip == 0:
+        max_precip = 1.0
+
+    rain_col = "rain_mm" if "rain_mm" in df_precip.columns else "precip_mm"
+    snow_col = "snow_mm" if "snow_mm" in df_precip.columns else None
+
+    rain_colors = [
+        f"rgba(24,95,165,{round(0.2 + 0.75 * (v / max_precip), 2)})" if v > 0 else "rgba(24,95,165,0)"
+        for v in df_precip[rain_col]
+    ]
+
+    # Merge precip into ODL for unified hover customdata
+    plot_odl["day_dt"] = pd.to_datetime(plot_odl["day"])
+    df_precip_m = df_precip.copy()
+    df_precip_m["day_dt"] = pd.to_datetime(df_precip_m["day"])
+    plot_merged = plot_odl.merge(
+        df_precip_m[["day_dt", rain_col] + ([snow_col] if snow_col else [])],
+        on="day_dt", how="left"
+    )
+    plot_merged[rain_col] = plot_merged[rain_col].fillna(0)
+    if snow_col:
+        plot_merged[snow_col] = plot_merged[snow_col].fillna(0)
+
+    if snow_col:
+        customdata_odl = plot_merged[["value", rain_col, snow_col]].values
+        hover_precip = (
+            "⛆ %{customdata[1]:.1f} mm<br>"
+            "❄ %{customdata[2]:.1f} mm<br>"
+        )
+    else:
+        customdata_odl = plot_merged[["value", rain_col]].values
+        hover_precip = "Precip.: %{customdata[1]:.1f} mm<br>"
+
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        row_heights=[0.85, 0.15],
+        vertical_spacing=0.02,
+    )
+
+    # Gleitender Mittelwert (14 Tage)
+    ma_window = 14
+    values = plot_merged["value"].tolist()
+    ma = []
+    for i in range(len(values)):
+        half = ma_window // 2
+        s = max(0, i - half)
+        e = min(len(values) - 1, i + half)
+        ma.append(round(sum(values[s:e+1]) / (e - s + 1), 4))
+    plot_merged = plot_merged.copy()
+    plot_merged["ma"] = ma
+
+    # Band-Grenzen: zwischen Tageslinie und MA
+    band_upper = [max(v, m) for v, m in zip(values, ma)]
+    band_lower = [min(v, m) for v, m in zip(values, ma)]
+
+    # Abweichung vom MA als Balken (base=MA, oben/unten)
+    deviation = [round(v - m, 4) for v, m in zip(values, ma)]
+    dev_colors = [
+        "rgba(24,95,165,0.45)" if d >= 0 else "rgba(24,95,165,0.2)"
+        for d in deviation
+    ]
 
     fig.add_trace(
         go.Bar(
-            x=plot_df["week_start"],
-            y=plot_df["plot_range"],
-            base=plot_df["min_24h"],
-            name="Weekly range",
-            marker=dict(
-                color="rgba(0, 153, 255, 0.5)",
-                line=dict(color="rgba(0, 51, 153, 1)", width=1.5),
-            ),
-            customdata=customdata_bar,
+            x=plot_merged["day"],
+            y=deviation,
+            base=plot_merged["ma"],
+            name="Daily value",
+            marker=dict(color=dev_colors, line=dict(width=0)),
             hovertemplate=(
-                "<b>%{customdata[0]}</b><br>"
-                "Min: %{base:.3f} µSv/h<br>"
-                "Max: %{customdata[1]:.3f} µSv/h<br>"
+                #"<b>%{x|%d. %b %Y}</b><br>"
+                "ODL: %{y:.3f} µSv/h<br>"
                 "<extra></extra>"
             ),
-            width=6 * 24 * 60 * 50 * 1000,
-        )
+        ),
+        row=1, col=1,
     )
 
+    # 14-Tage-Mittel (dick, satt)
     fig.add_trace(
         go.Scatter(
-            x=plot_df["week_start"],
-            y=plot_df["week_value"],
-            mode="lines+markers",
-            name="Weekly value",
-            line=dict(color="rgba(0, 0, 255, 0.9)", width=2, dash=None),
+            x=plot_merged["day"],
+            y=plot_merged["ma"],
+            mode="lines",
+            name=f"{ma_window}-day mean",
+            line=dict(color="rgba(24, 95, 165, 0.9)", width=2),
             line_shape="spline",
-            marker=dict(
-                size=8,
-                color="rgba(255, 255, 255, 1)",
-                symbol="circle",
-                line=dict(color="rgba(0, 0, 255, 0.9)", width=1),
-            ),
-            customdata=customdata_scatter,
-            hovertemplate=(
-                "<b>%{customdata[0]}</b><br>"
-                "Weekly value: %{y:.3f} µSv/h<br>"
-                "Min: %{customdata[1]:.3f} µSv/h<br>"
-                "Max: %{customdata[2]:.3f} µSv/h<br>"
-                "<extra></extra>"
-            ),
-        )
+            hoverinfo="skip",
+        ),
+        row=1, col=1,
     )
 
+    # Rain
+    fig.add_trace(
+        go.Bar(
+            x=df_precip["day"],
+            y=df_precip[rain_col],
+            name="Rain",
+            marker=dict(
+                color=rain_colors,
+                line=dict(color="rgba(24,95,165,0.6)", width=0.6),
+            ),
+            hovertemplate="⛆ %{y:.1f} mm<extra></extra>",
+        ),
+        row=2, col=1,
+    )
+
+    # Snow
+    if snow_col:
+        snow_colors = [
+            f"rgba(180,178,200,{round(0.3 + 0.65 * (v / max_precip), 2)})" if v > 0 else "rgba(180,178,200,0)"
+            for v in df_precip[snow_col]
+        ]
+        fig.add_trace(
+            go.Bar(
+                x=df_precip["day"],
+                y=df_precip[snow_col],
+                name="Snow",
+                marker=dict(
+                    color=snow_colors,
+                    line=dict(color="rgba(140,140,160,0.7)", width=0.7),
+                ),
+                hovertemplate="❄ %{y:.1f} mm<extra></extra>",
+            ),
+            row=2, col=1,
+        )
+
     fig.update_layout(
-        title=f"Weekly Value • {station_name}",
-        xaxis_title="Date",
-        yaxis_title="ODL (µSv/h)",
+        title=f"Daily Value • {station_name}",
         template="plotly_white",
         barmode="overlay",
-        bargap=0.02,
+        bargap=0,
+        hovermode="x unified",
+        xaxis2=dict(
+            tickformat="%b",
+            dtick="M1",
+            ticklabelmode="period",
+        ),
+        yaxis=dict(title="ODL"),
+        yaxis2=dict(title="⛆/❄", showgrid=False, title_standoff=5),
     )
 
     return fig
@@ -691,7 +831,8 @@ with c2.container(border=True, height="stretch"):
 
 with st.container(border=True):
     fig_week = make_plot_year(
-        df=df_24h_weekly,
+        df_odl=df_24h,
+        df_precip=df_precip_daily,
         station_name=station_name,
     )
     
@@ -723,4 +864,4 @@ with st.container(border=True):
     ))
     st.plotly_chart(fig_week)
 
-st.caption("Data from [ODL-Info](https://odlinfo.bfs.de)")
+st.caption("Data from [ODL-Info](https://odlinfo.bfs.de) and [Open-Meteo](https://open-meteo.com)")
