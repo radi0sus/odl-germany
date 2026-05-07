@@ -387,128 +387,352 @@ def make_plot_7_days(
 ):
     from plotly.subplots import make_subplots
 
+    # ------------------------------------------------------------
+    # Prepare data
+    # ------------------------------------------------------------
     plot_df = df.copy()
-    plot_df["plot_range"] = plot_df["max_1h"] - plot_df["min_1h"]
 
-    rain_col = "rain_mm" if "rain_mm" in plot_df.columns else "precip_mm"
-    snow_col = "snow_mm" if "snow_mm" in plot_df.columns else None
+    if plot_df.empty:
+        fig = go.Figure()
+        fig.update_layout(
+            title=f"Daily Value • {station_name}",
+            template="plotly_white",
+        )
+        return fig
 
-    max_precip = plot_df["precip_mm"].max() if plot_df["precip_mm"].max() > 0 else 1.0
+    plot_df["day"] = pd.to_datetime(plot_df["day"]).dt.date
 
-    rain_vals = plot_df[rain_col] if rain_col in plot_df.columns else plot_df["precip_mm"]
-    snow_vals = plot_df[snow_col] if snow_col and snow_col in plot_df.columns else pd.Series([0.0] * len(plot_df))
-
-    rain_colors = [
-        f"rgba(24,95,165,{round(0.2 + 0.75*(v/max_precip),2)})" if v > 0 else "rgba(24,95,165,0)"
-        for v in rain_vals
-    ]
-    snow_colors = [
-        f"rgba(180,178,200,{round(0.3 + 0.65*(v/max_precip),2)})" if v > 0 else "rgba(180,178,200,0)"
-        for v in snow_vals
-    ]
-
-    customdata = plot_df[["min_1h", "max_1h"]].values
-    hover_odl = (
-        #"<b>%{x}</b><br>"
-        "ODL: %{y:.3f} µSv/h<br>"
-        "Min: %{customdata[0]:.3f} µSv/h<br>"
-        "Max: %{customdata[1]:.3f} µSv/h<br>"
-        "<extra></extra>"
+    plot_df["day_value"] = pd.to_numeric(
+        plot_df["day_value"],
+        errors="coerce",
     )
-    hover_rain = "⛆ %{y:.1f} mm<extra></extra>"
-    hover_snow = "❄ %{y:.1f} mm<extra></extra>"
-    rain_customdata = None
 
+    plot_df["min_plot"] = pd.to_numeric(
+        plot_df["min_1h"],
+        errors="coerce",
+    ).fillna(plot_df["day_value"])
+
+    plot_df["max_plot"] = pd.to_numeric(
+        plot_df["max_1h"],
+        errors="coerce",
+    ).fillna(plot_df["day_value"])
+
+    plot_df["range_plot"] = (
+        plot_df["max_plot"] - plot_df["min_plot"]
+    ).clip(lower=0)
+
+    # ------------------------------------------------------------
+    # Prepare precipitation
+    # ------------------------------------------------------------
+    rain_source = "rain_mm" if "rain_mm" in plot_df.columns else None
+    if rain_source is None and "precip_mm" in plot_df.columns:
+        rain_source = "precip_mm"
+
+    snow_source = "snow_mm" if "snow_mm" in plot_df.columns else None
+
+    if rain_source:
+        plot_df["rain_plot"] = pd.to_numeric(
+            plot_df[rain_source],
+            errors="coerce",
+        ).fillna(0.0)
+    else:
+        plot_df["rain_plot"] = 0.0
+
+    if snow_source:
+        plot_df["snow_plot"] = pd.to_numeric(
+            plot_df[snow_source],
+            errors="coerce",
+        ).fillna(0.0)
+    else:
+        plot_df["snow_plot"] = 0.0
+
+    # ------------------------------------------------------------
+    # Color intensity helper for fixed-height weather strip
+    # ------------------------------------------------------------
+    def intensity_colors(values, rgb, alpha_min=0.22, alpha_max=0.95):
+        series = pd.Series(values).fillna(0.0).astype(float)
+        positive = series[series > 0]
+
+        if positive.empty:
+            scale_max = 1.0
+        else:
+            scale_max = float(positive.quantile(0.95))
+            if scale_max <= 0:
+                scale_max = 1.0
+
+        r, g, b = rgb
+        colors = []
+
+        for value in series:
+            if value <= 0:
+                colors.append(f"rgba({r},{g},{b},0)")
+            else:
+                ratio = min(value / scale_max, 1.0)
+                ratio = ratio ** 0.5
+                alpha = alpha_min + (alpha_max - alpha_min) * ratio
+                colors.append(f"rgba({r},{g},{b},{round(alpha, 3)})")
+
+        return colors
+
+    rain_colors = intensity_colors(
+        plot_df["rain_plot"],
+        rgb=(24, 95, 165),
+        alpha_min=0.24,
+        alpha_max=0.95,
+    )
+
+    snow_colors = intensity_colors(
+        plot_df["snow_plot"],
+        rgb=(150, 150, 165),
+        alpha_min=0.26,
+        alpha_max=0.88,
+    )
+
+    # ------------------------------------------------------------
+    # Figure: ODL panel + compact stacked weather strip
+    # ------------------------------------------------------------
     fig = make_subplots(
-        rows=2, cols=1,
+        rows=2,
+        cols=1,
         shared_xaxes=True,
-        row_heights=[0.82, 0.18],
-        vertical_spacing=0.02,
+        row_heights=[0.84, 0.16],
+        vertical_spacing=0.025,
     )
 
-    # Min-Max-Band
+    # ------------------------------------------------------------
+    # Daily min-max range
+    # ------------------------------------------------------------
+    day_width_ms = 24 * 60 * 60 * 1000
+    range_width_ms = day_width_ms * 0.58
+    strip_width_ms = day_width_ms * 0.95
+
     fig.add_trace(
         go.Bar(
             x=plot_df["day"],
-            y=plot_df["plot_range"],
-            base=plot_df["min_1h"],
+            y=plot_df["range_plot"],
+            base=plot_df["min_plot"],
+            width=range_width_ms,
             name="Daily range",
             marker=dict(
-                color="rgba(0, 153, 255, 0.35)",
-                line=dict(color="rgba(0, 51, 153, 0.7)", width=1),
+                color="rgba(34,197,94,0.28)",
+                line=dict(
+                    color="rgba(22,101,52,0.65)",
+                    width=1,
+                ),
             ),
-            customdata=customdata,
             hoverinfo="skip",
-            width=6 * 24 * 120 * 1000,
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
-    # Tagesmittel
+    # ------------------------------------------------------------
+    # Daily value line
+    # ------------------------------------------------------------
     fig.add_trace(
         go.Scatter(
             x=plot_df["day"],
             y=plot_df["day_value"],
             mode="lines+markers",
             name="Daily value",
-            line=dict(color="rgba(24, 95, 165, 0.9)", width=2),
+            line=dict(
+                color="rgba(22,101,52,0.95)",
+                width=2.2,
+            ),
             line_shape="spline",
             marker=dict(
                 size=8,
-                color="rgba(255, 255, 255, 1)",
+                color="rgba(255,255,255,1)",
                 symbol="circle",
-                line=dict(color="rgba(24, 95, 165, 0.9)", width=1.5),
+                line=dict(
+                    color="rgba(22,101,52,0.95)",
+                    width=1.6,
+                ),
             ),
-            customdata=customdata,
-            hovertemplate=hover_odl,
+            hoverinfo="skip",
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
-    # Rain
+    # ------------------------------------------------------------
+    # Weather strip: fixed-height stacked bars
+    # rain segment: 0..1
+    # snow segment: 1..2
+    # amount encoded only by color intensity
+    # ------------------------------------------------------------
     fig.add_trace(
         go.Bar(
             x=plot_df["day"],
-            y=rain_vals,
-            name="Rain",
+            y=[1.0] * len(plot_df),
+            base=[0.0] * len(plot_df),
+            width=strip_width_ms,
+            name="⛆ Rain",
+            showlegend=False,
             marker=dict(
                 color=rain_colors,
-                line=dict(color="rgba(24,95,165,0.7)", width=0.8),
+                line=dict(width=0),
             ),
-            customdata=rain_customdata,
-            hovertemplate=hover_rain,
+            hoverinfo="skip",
         ),
-        row=2, col=1,
+        row=2,
+        col=1,
     )
 
-    # Snow
-    if snow_col and snow_col in plot_df.columns:
-        fig.add_trace(
-            go.Bar(
-                x=plot_df["day"],
-                y=snow_vals,
-                name="Snow",
-                marker=dict(
-                    color=snow_colors,
-                    line=dict(color="rgba(140,140,160,0.7)", width=0.8),
-                ),
-                hovertemplate=hover_snow,
+    fig.add_trace(
+        go.Bar(
+            x=plot_df["day"],
+            y=[1.0] * len(plot_df),
+            base=[1.0] * len(plot_df),
+            width=strip_width_ms,
+            name="❄ Snow",
+            showlegend=False,
+            marker=dict(
+                color=snow_colors,
+                line=dict(width=0),
             ),
-            row=2, col=1,
-        )
+            hoverinfo="skip",
+        ),
+        row=2,
+        col=1,
+    )
 
+    # ------------------------------------------------------------
+    # Single compact hover source
+    # ------------------------------------------------------------
+    customdata_hover = plot_df[
+        [
+            "day_value",
+            "min_plot",
+            "max_plot",
+            "rain_plot",
+            "snow_plot",
+        ]
+    ].values
+
+    hover_template = (
+        "<b>%{x|%d. %b %Y}</b><br>"
+        "ODL: %{customdata[0]:.3f} µSv/h<br>"
+        "Min: %{customdata[1]:.3f} µSv/h<br>"
+        "Max: %{customdata[2]:.3f} µSv/h<br>"
+        "⛆ %{customdata[3]:.1f} mm<br>"
+        "❄ %{customdata[4]:.1f} cm"
+        "<extra></extra>"
+    )
+
+    # Invisible hover trace over ODL panel
+    fig.add_trace(
+        go.Scatter(
+            x=plot_df["day"],
+            y=plot_df["day_value"],
+            mode="markers",
+            name="Details",
+            showlegend=False,
+            marker=dict(
+                size=16,
+                color="rgba(0,0,0,0)",
+                line=dict(width=0),
+            ),
+            customdata=customdata_hover,
+            hovertemplate=hover_template,
+        ),
+        row=1,
+        col=1,
+    )
+
+    # Invisible hover trace over weather strip
+    fig.add_trace(
+        go.Scatter(
+            x=plot_df["day"],
+            y=[1.0] * len(plot_df),
+            mode="markers",
+            name="Details",
+            showlegend=False,
+            marker=dict(
+                size=18,
+                color="rgba(0,0,0,0)",
+                line=dict(width=0),
+            ),
+            customdata=customdata_hover,
+            hovertemplate=hover_template,
+        ),
+        row=2,
+        col=1,
+    )
+
+    # ------------------------------------------------------------
+    # Layout
+    # ------------------------------------------------------------
     fig.update_layout(
         title=f"Daily Value • {station_name}",
         template="plotly_white",
-        barmode="stack",
+        barmode="overlay",
         bargap=0,
-        hovermode="x unified",
-        yaxis=dict(title="ODL"),
-        yaxis2=dict(title="⛆/❄", showgrid=False, title_standoff=5),
+        hovermode="closest",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+        ),
+        margin=dict(l=60, r=30, t=70, b=45),
+    )
+
+    # ODL axis
+    fig.update_yaxes(
+        title_text="ODL µSv/h",
+        color="rgba(22,101,52,1)",
+        gridcolor="rgba(22,101,52,0.10)",
+        zeroline=False,
+        showspikes=False,
+        row=1,
+        col=1,
+    )
+
+    # Weather strip axis
+    fig.update_yaxes(
+        title_text="",
+        range=[0, 2],
+        tickmode="array",
+        tickvals=[0.5, 1.5],
+        ticktext=["⛆", "❄"],
+        showgrid=False,
+        zeroline=False,
+        fixedrange=True,
+        showspikes=False,
+        row=2,
+        col=1,
+    )
+
+    # Top x-axis: no labels, but vertical hover spike
+    fig.update_xaxes(
+        showticklabels=False,
+        showspikes=True,
+        spikemode="across",
+        spikesnap="hovered data",
+        spikedash="dot",
+        spikecolor="rgba(80,80,80,0.55)",
+        spikethickness=1,
+        row=1,
+        col=1,
+    )
+
+    # Bottom x-axis
+    fig.update_xaxes(
+        tickformat="%b %d",
+        showgrid=False,
+        showspikes=True,
+        spikemode="across",
+        spikesnap="hovered data",
+        spikedash="dot",
+        spikecolor="rgba(80,80,80,0.55)",
+        spikethickness=1,
+        row=2,
+        col=1,
     )
 
     return fig
-
 
 def make_plot_year(
     df_odl: pd.DataFrame,
@@ -517,155 +741,367 @@ def make_plot_year(
 ):
     from plotly.subplots import make_subplots
 
-    plot_odl = df_odl.assign(day=df_odl["start_dt"].dt.date).copy()
-    plot_odl = plot_odl.sort_values("day")
+    # ------------------------------------------------------------
+    # Prepare ODL data
+    # ------------------------------------------------------------
+    plot_odl = df_odl.copy()
+    plot_odl = plot_odl.dropna(subset=["start_dt", "value"]).copy()
+    plot_odl["day"] = plot_odl["start_dt"].dt.date
+    plot_odl = plot_odl[["day", "value"]].sort_values("day").reset_index(drop=True)
 
-    max_precip = df_precip["precip_mm"].max() if not df_precip.empty else 1.0
-    if max_precip == 0:
-        max_precip = 1.0
-
-    rain_col = "rain_mm" if "rain_mm" in df_precip.columns else "precip_mm"
-    snow_col = "snow_mm" if "snow_mm" in df_precip.columns else None
-
-    rain_colors = [
-        f"rgba(24,95,165,{round(0.2 + 0.75 * (v / max_precip), 2)})" if v > 0 else "rgba(24,95,165,0)"
-        for v in df_precip[rain_col]
-    ]
-
-    # Merge precip into ODL for unified hover customdata
-    plot_odl["day_dt"] = pd.to_datetime(plot_odl["day"])
-    df_precip_m = df_precip.copy()
-    df_precip_m["day_dt"] = pd.to_datetime(df_precip_m["day"])
-    plot_merged = plot_odl.merge(
-        df_precip_m[["day_dt", rain_col] + ([snow_col] if snow_col else [])],
-        on="day_dt", how="left"
-    )
-    plot_merged[rain_col] = plot_merged[rain_col].fillna(0)
-    if snow_col:
-        plot_merged[snow_col] = plot_merged[snow_col].fillna(0)
-
-    if snow_col:
-        customdata_odl = plot_merged[["value", rain_col, snow_col]].values
-        hover_precip = (
-            "⛆ %{customdata[1]:.1f} mm<br>"
-            "❄ %{customdata[2]:.1f} mm<br>"
+    if plot_odl.empty:
+        fig = go.Figure()
+        fig.update_layout(
+            title=f"Daily Value • {station_name}",
+            template="plotly_white",
         )
-    else:
-        customdata_odl = plot_merged[["value", rain_col]].values
-        hover_precip = "Precip.: %{customdata[1]:.1f} mm<br>"
+        return fig
 
-    fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        row_heights=[0.85, 0.15],
-        vertical_spacing=0.02,
+    # 14-day centered moving average
+    ma_window = 14
+    plot_odl["ma"] = (
+        plot_odl["value"]
+        .rolling(window=ma_window, center=True, min_periods=1)
+        .mean()
     )
 
-    # Gleitender Mittelwert (14 Tage)
-    ma_window = 14
-    values = plot_merged["value"].tolist()
-    ma = []
-    for i in range(len(values)):
-        half = ma_window // 2
-        s = max(0, i - half)
-        e = min(len(values) - 1, i + half)
-        ma.append(round(sum(values[s:e+1]) / (e - s + 1), 4))
-    plot_merged = plot_merged.copy()
-    plot_merged["ma"] = ma
+    # ------------------------------------------------------------
+    # Prepare precipitation data
+    # ------------------------------------------------------------
+    if df_precip is None or df_precip.empty:
+        precip_plot = pd.DataFrame({"day": plot_odl["day"].unique()})
+        precip_plot["rain_plot"] = 0.0
+        precip_plot["snow_plot"] = 0.0
+    else:
+        precip_plot = df_precip.copy()
+        precip_plot["day"] = pd.to_datetime(precip_plot["day"]).dt.date
 
-    # Band-Grenzen: zwischen Tageslinie und MA
-    band_upper = [max(v, m) for v, m in zip(values, ma)]
-    band_lower = [min(v, m) for v, m in zip(values, ma)]
+        rain_source = "rain_mm" if "rain_mm" in precip_plot.columns else None
+        if rain_source is None and "precip_mm" in precip_plot.columns:
+            rain_source = "precip_mm"
 
-    # Abweichung vom MA als Balken (base=MA, oben/unten)
-    deviation = [round(v - m, 4) for v, m in zip(values, ma)]
-    dev_colors = [
-        "rgba(24,95,165,0.45)" if d >= 0 else "rgba(24,95,165,0.2)"
-        for d in deviation
+        snow_source = "snow_mm" if "snow_mm" in precip_plot.columns else None
+
+        if rain_source:
+            precip_plot["rain_plot"] = pd.to_numeric(
+                precip_plot[rain_source],
+                errors="coerce",
+            ).fillna(0.0)
+        else:
+            precip_plot["rain_plot"] = 0.0
+
+        if snow_source:
+            precip_plot["snow_plot"] = pd.to_numeric(
+                precip_plot[snow_source],
+                errors="coerce",
+            ).fillna(0.0)
+        else:
+            precip_plot["snow_plot"] = 0.0
+
+        precip_plot = precip_plot[["day", "rain_plot", "snow_plot"]]
+
+    # ------------------------------------------------------------
+    # Merge weather into ODL dates
+    # ------------------------------------------------------------
+    plot_merged = plot_odl.merge(
+        precip_plot,
+        on="day",
+        how="left",
+    )
+
+    plot_merged["rain_plot"] = plot_merged["rain_plot"].fillna(0.0)
+    plot_merged["snow_plot"] = plot_merged["snow_plot"].fillna(0.0)
+
+    # Daily ODL bars as deviation around 14-day mean
+    plot_merged["odl_dev"] = plot_merged["value"] - plot_merged["ma"]
+
+    odl_bar_colors = [
+        "rgba(34,197,94,0.48)" if d >= 0 else "rgba(34,197,94,0.22)"
+        for d in plot_merged["odl_dev"]
     ]
 
+    # ------------------------------------------------------------
+    # Color intensity helper for fixed-height weather strip
+    # ------------------------------------------------------------
+    def intensity_colors(values, rgb, alpha_min=0.22, alpha_max=0.95):
+        """
+        Amount is represented by color intensity only.
+        Uses 95%-quantile capping and sqrt scaling so small/medium
+        precipitation events remain visible.
+        """
+        series = pd.Series(values).fillna(0.0).astype(float)
+        positive = series[series > 0]
+
+        if positive.empty:
+            scale_max = 1.0
+        else:
+            scale_max = float(positive.quantile(0.95))
+            if scale_max <= 0:
+                scale_max = 1.0
+
+        r, g, b = rgb
+        colors = []
+
+        for value in series:
+            if value <= 0:
+                colors.append(f"rgba({r},{g},{b},0)")
+            else:
+                ratio = min(value / scale_max, 1.0)
+                ratio = ratio ** 0.5
+                alpha = alpha_min + (alpha_max - alpha_min) * ratio
+                colors.append(f"rgba({r},{g},{b},{round(alpha, 3)})")
+
+        return colors
+
+    rain_colors = intensity_colors(
+        plot_merged["rain_plot"],
+        rgb=(24, 95, 165),
+        alpha_min=0.22,
+        alpha_max=0.95,
+    )
+
+    snow_colors = intensity_colors(
+        plot_merged["snow_plot"],
+        rgb=(150, 150, 165),
+        alpha_min=0.24,
+        alpha_max=0.88,
+    )
+
+    # ------------------------------------------------------------
+    # Figure: ODL panel + compact stacked weather strip
+    # ------------------------------------------------------------
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        row_heights=[0.88, 0.12],
+        vertical_spacing=0.015,
+    )
+
+    # ------------------------------------------------------------
+    # Daily ODL as deviation bars around 14-day mean
+    # ------------------------------------------------------------
     fig.add_trace(
         go.Bar(
             x=plot_merged["day"],
-            y=deviation,
+            y=plot_merged["odl_dev"],
             base=plot_merged["ma"],
-            name="Daily value",
-            marker=dict(color=dev_colors, line=dict(width=0)),
-            hovertemplate=(
-                #"<b>%{x|%d. %b %Y}</b><br>"
-                "ODL: %{y:.3f} µSv/h<br>"
-                "<extra></extra>"
+            name="Daily ODL",
+            marker=dict(
+                color=odl_bar_colors,
+                line=dict(width=0),
             ),
+            hoverinfo="skip",
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
-    # 14-Tage-Mittel (dick, satt)
+    # ------------------------------------------------------------
+    # 14-day mean line
+    # ------------------------------------------------------------
     fig.add_trace(
         go.Scatter(
             x=plot_merged["day"],
             y=plot_merged["ma"],
             mode="lines",
             name=f"{ma_window}-day mean",
-            line=dict(color="rgba(24, 95, 165, 0.9)", width=2),
+            line=dict(
+                color="rgba(22,101,52,0.96)",
+                width=2.4,
+            ),
             line_shape="spline",
             hoverinfo="skip",
         ),
-        row=1, col=1,
+        row=1,
+        col=1,
     )
 
-    # Rain
+    # ------------------------------------------------------------
+    # Weather strip: fixed-height stacked bars
+    # rain segment: 0..1
+    # snow segment: 1..2
+    # amount encoded only by color intensity
+    # ------------------------------------------------------------
+    day_width_ms = 24 * 60 * 60 * 1000 * 0.95
+
     fig.add_trace(
         go.Bar(
-            x=df_precip["day"],
-            y=df_precip[rain_col],
-            name="Rain",
+            x=plot_merged["day"],
+            y=[1.0] * len(plot_merged),
+            base=[0.0] * len(plot_merged),
+            width=day_width_ms,
+            name="⛆ Rain",
+            showlegend=False,
             marker=dict(
                 color=rain_colors,
-                line=dict(color="rgba(24,95,165,0.6)", width=0.6),
+                line=dict(width=0),
             ),
-            hovertemplate="⛆ %{y:.1f} mm<extra></extra>",
+            hoverinfo="skip",
         ),
-        row=2, col=1,
+        row=2,
+        col=1,
     )
 
-    # Snow
-    if snow_col:
-        snow_colors = [
-            f"rgba(180,178,200,{round(0.3 + 0.65 * (v / max_precip), 2)})" if v > 0 else "rgba(180,178,200,0)"
-            for v in df_precip[snow_col]
-        ]
-        fig.add_trace(
-            go.Bar(
-                x=df_precip["day"],
-                y=df_precip[snow_col],
-                name="Snow",
-                marker=dict(
-                    color=snow_colors,
-                    line=dict(color="rgba(140,140,160,0.7)", width=0.7),
-                ),
-                hovertemplate="❄ %{y:.1f} mm<extra></extra>",
+    fig.add_trace(
+        go.Bar(
+            x=plot_merged["day"],
+            y=[1.0] * len(plot_merged),
+            base=[1.0] * len(plot_merged),
+            width=day_width_ms,
+            name="❄ Snow",
+            showlegend=False,
+            marker=dict(
+                color=snow_colors,
+                line=dict(width=0),
             ),
-            row=2, col=1,
-        )
+            hoverinfo="skip",
+        ),
+        row=2,
+        col=1,
+    )
 
+    # ------------------------------------------------------------
+    # Single compact hover source
+    # ------------------------------------------------------------
+    customdata_hover = plot_merged[
+        [
+            "value",
+            "rain_plot",
+            "snow_plot",
+        ]
+    ].values
+
+    hover_template = (
+        "<b>%{x|%d. %b %Y}</b><br>"
+        "ODL: %{customdata[0]:.3f} µSv/h<br>"
+        "⛆ %{customdata[1]:.1f} mm<br>"
+        "❄ %{customdata[2]:.1f} cm"
+        "<extra></extra>"
+    )
+
+    # Invisible hover trace over ODL panel
+    fig.add_trace(
+        go.Scatter(
+            x=plot_merged["day"],
+            y=plot_merged["value"],
+            mode="markers",
+            name="Details",
+            showlegend=False,
+            marker=dict(
+                size=16,
+                color="rgba(0,0,0,0)",
+                line=dict(width=0),
+            ),
+            customdata=customdata_hover,
+            hovertemplate=hover_template,
+        ),
+        row=1,
+        col=1,
+    )
+
+    # Invisible hover trace over weather strip
+    fig.add_trace(
+        go.Scatter(
+            x=plot_merged["day"],
+            y=[1.0] * len(plot_merged),
+            mode="markers",
+            name="Details",
+            showlegend=False,
+            marker=dict(
+                size=16,
+                color="rgba(0,0,0,0)",
+                line=dict(width=0),
+            ),
+            customdata=customdata_hover,
+            hovertemplate=hover_template,
+        ),
+        row=2,
+        col=1,
+    )
+
+    # ------------------------------------------------------------
+    # Layout
+    # ------------------------------------------------------------
     fig.update_layout(
         title=f"Daily Value • {station_name}",
         template="plotly_white",
         barmode="overlay",
         bargap=0,
-        hovermode="x unified",
-        xaxis2=dict(
-            tickformat="%b",
-            dtick="M1",
-            ticklabelmode="period",
+        hovermode="closest",
+        hoverdistance=60,
+        spikedistance=-1,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
         ),
-        yaxis=dict(title="ODL"),
-        yaxis2=dict(title="⛆/❄", showgrid=False, title_standoff=5),
+        margin=dict(l=60, r=30, t=70, b=45),
+    )
+
+    # ------------------------------------------------------------
+    # Y axes
+    # No horizontal/y spike.
+    # ------------------------------------------------------------
+    fig.update_yaxes(
+        title_text="ODL µSv/h",
+        color="rgba(22,101,52,1)",
+        gridcolor="rgba(22,101,52,0.10)",
+        zeroline=False,
+        showspikes=False,
+        row=1,
+        col=1,
+    )
+
+    fig.update_yaxes(
+        title_text="",
+        range=[0, 2],
+        tickmode="array",
+        tickvals=[0.5, 1.5],
+        ticktext=["⛆", "❄"],
+        showgrid=False,
+        zeroline=False,
+        fixedrange=True,
+        showspikes=False,
+        row=2,
+        col=1,
+    )
+
+    # ------------------------------------------------------------
+    # X axes
+    # Snappy behavior: vertical dotted line snaps to nearest data point.
+    # ------------------------------------------------------------
+    fig.update_xaxes(
+        showticklabels=False,
+        showspikes=True,
+        spikemode="across",
+        spikesnap="data",
+        spikedash="dot",
+        spikecolor="rgba(80,80,80,0.55)",
+        spikethickness=1,
+        row=1,
+        col=1,
+    )
+
+    fig.update_xaxes(
+        tickformat="%b",
+        dtick="M1",
+        ticklabelmode="period",
+        showgrid=False,
+        showspikes=True,
+        spikemode="across",
+        spikesnap="data",
+        spikedash="dot",
+        spikecolor="rgba(80,80,80,0.55)",
+        spikethickness=1,
+        row=2,
+        col=1,
     )
 
     return fig
-
+    
 #st.markdown(f"{station_name} · PLZ {selected_row['plz']} · ID {selected_row['kenn']}")
 st.markdown(
     f":gray-badge[:material/location_on: {station_name}] "
