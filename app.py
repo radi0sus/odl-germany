@@ -889,7 +889,8 @@ def make_plot_year(
             name="Daily ODL",
             marker=dict(
                 color=odl_bar_colors,
-                line=dict(width=0),
+                line=dict(color="rgba(22,101,52,0.65)",
+                          width=0.5),
             ),
             hoverinfo="skip",
         ),
