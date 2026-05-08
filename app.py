@@ -16,18 +16,21 @@ from streamlit_folium import st_folium
 # ============================================================
 
 #PLACE_NAME = "Berlin-Wannsee"
-#STATION_KENN = "110000000"
+STATION_KENN = "110000010"
 BASE_URL = "https://www.imis.bfs.de/ogc/opendata/ows"
 
 ONE_HOUR_LAYER = "opendata:odlinfo_timeseries_odl_1h"
 TWENTYFOUR_HOUR_LAYER = "opendata:odlinfo_timeseries_odl_24h"
+LATEST_LAYER = "opendata:odlinfo_odl_1h_latest"
+
+METEO_BASE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
 APP_TITLE = "☢ Ambient Dose Rate Monitoring"
 APP_SUBTITLE = (
     "Interactive overview of ambient dose rate monitoring (Ortsdosisleistung ODL) stations in Germany with 1-hour and 24-hour data."
 )
 
-LATEST_LAYER = "opendata:odlinfo_odl_1h_latest"
+
 
 
 # ============================================================
@@ -222,7 +225,7 @@ def load_openmeteo_precip_daily(lat: float, lon: float) -> pd.DataFrame:
         "timezone": "Europe/Berlin",
     }
 
-    url = "https://archive-api.open-meteo.com/v1/archive?" + urllib.parse.urlencode(params)
+    url = METEO_BASE_URL + "?" + urllib.parse.urlencode(params)
 
     with urllib.request.urlopen(url, timeout=60) as response:
         data = json.load(response)
@@ -259,15 +262,15 @@ st.markdown("##### Select Station")
 
 station_labels = df_stations["label"].tolist()
 
-#default_index = 0
-#default_match = df_stations.index[df_stations["name"] == STATION_KENN].tolist()
-#if default_match:
-#    default_index = df_stations.index.get_loc(default_match[0])
+default_index = 0
+default_match = df_stations.index[df_stations["kenn"] == STATION_KENN].tolist()
+if default_match:
+    default_index = df_stations.index.get_loc(default_match[0])
 
 selected_label = st.selectbox(
     "Search station: City / Location, PLZ, or Station ID",
     options=station_labels,
-    index=142,
+    index=default_index,
 )
 
 selected_row = df_stations[df_stations["label"] == selected_label].iloc[0]
